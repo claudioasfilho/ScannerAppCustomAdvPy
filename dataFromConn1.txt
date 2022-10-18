@@ -1,0 +1,10 @@
+Connection address: 84:2e:14:31:bd:6b
+
+Connection #: 1
+
+Connection handler#: 0
+
+Connection #1 silent 
+
+Connection #1
+Final Time:0

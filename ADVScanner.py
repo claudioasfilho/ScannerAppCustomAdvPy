@@ -44,12 +44,13 @@ CUSTOM_CHAR = b"\x8e\x66\x58\x63\x74\xdf\x5b\x81\x05\x40\x9c\x2f\xf6\x55\x48\x3a
 
 ADV_HEADER = b"\x02\x01\x06\x05\xff\xaa\xaa"
 
+TURN_ON_GPIO = b"\x01\x01\x01"
 
 # The maximum number of connections has to match with the configuration on the target side.
 SL_BT_CONFIG_MAX_CONNECTIONS = 32
 
 
-TIMER_PERIOD = 1.0
+TIMER_PERIOD = 15.0
 SCANNING_PERIOD = 5.0
 SETTLING_PERIOD = 30.0
 
@@ -57,12 +58,10 @@ SETTLING_PERIOD = 30.0
 connectable_device = []
 connectable_device_objects = []
 custom_beacon_device_addresses = []
-connectable_device_addresses = []
+device_addresses = []
 init_time = []
 TX_Counter = []
-payload_received = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-packets_received = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-receive_silence = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+
 
 class Connectable_device:
     def __init__(self, address, address_type, bonding, primary_phy, secondary_phy, adv_sid, tx_power, rssi):
@@ -86,7 +85,7 @@ class App(BluetoothApp):
     Notification_Handler = 0
     scanner_initial_time = 0
     initial_time = 0
-    final_time = 0
+    scan_started = 0
 
 
     """ Application derived from generic BluetoothApp. """
@@ -103,46 +102,79 @@ class App(BluetoothApp):
             # Set the default connection parameters for subsequent connections
 
          # Start scanning - looking for thermometer devices
+
+
+        #  sl_bt_user_message_to_target(TURN_ON_GPIO)
+
+            
             self.lib.bt.scanner.start(
                 self.lib.bt.gap.PHY_PHY_1M,
                 self.lib.bt.scanner.DISCOVER_MODE_DISCOVER_GENERIC)
+            self.lib.bt.user.message_to_target(TURN_ON_GPIO)
             self.scanner_initial_time = time.time()
             self.conn_state = "scanning"
             print(self.conn_state)
             self.timer = PeriodicTimer(period=TIMER_PERIOD, target=self.timer_handler)
-            # self.timer = PeriodicTimer(period=TIMER_PERIOD, target=self.timer_handler)
-            # self.timer.start()
-            # self.conn_properties = {}
-            # self.connection_mtu = 0
-            # self.connection_payload = 0
+            self.devices_data = {}
+            self.timer.start()
 
         # This event is generated when an advertisement packet or a scan response
         # is received from a responder
         elif evt == "bt_evt_scanner_legacy_advertisement_report":
             # Parse advertisement packets
             if (ADV_HEADER in evt.data):
-                #It
-
-                #If custom Beacon is found, and not already added to the List, it will get added
-                if evt.address not in connectable_device_addresses:
-                    init_time.append(time.time())
-                    delta = init_time[self.devices_found] - self.scanner_initial_time
-                    connectable_device_addresses.append(evt.address)
+                #If custom Beacon is found, and not already added to the List, it will get added to the list
+                if evt.address not in device_addresses:
+                    
+                    device_addresses.append(evt.address)
+                    loc_init_time = time.time()
+                    loc_delta = loc_init_time - self.scanner_initial_time
                     loc_counter = int(evt.data[7]<<8 | evt.data[8])
-                    TX_Counter.append(loc_counter)
-                    print("Device found :" + str(evt.address) + " time to discover: " + str(delta)+"s " + "TX Counter: " + str(loc_counter)+" \n")
-                    #print(loc_counter)
-                    #print(delta)
+                    
+
+                    self.devices_data[self.devices_found] = {}
+                    self.devices_data[self.devices_found]["Device_Handler"] = self.devices_found
+                    self.devices_data[self.devices_found]["Device_address"] = evt.address
+                    self.devices_data[self.devices_found]["Time_of_Discovery"] = loc_init_time
+                    self.devices_data[self.devices_found]["Time_to_Discover"] = loc_delta
+                    self.devices_data[self.devices_found]["_1st_BLE_TX_Count"] = loc_counter
+                    self.devices_data[self.devices_found]["RSSI"] = evt.rssi
+                    self.devices_data[self.devices_found]["RX_Count"] = 1
+
+                    record = []
+                    record.append(loc_counter)
+                    TX_Counter.append(record)
+                    
+                    
+                    init_time.append(loc_init_time)
+                    #TX_Counter.append(loc_counter)
+                    print("Device found :" + str(evt.address) + " time to discover: " + str(loc_delta)+"s " + "TX Counter: " + str(loc_counter)+" \n")
                     self.devices_found +=1
+                else :
+                    loc_data_len = len(self.devices_data)
+                    for x in self.devices_data:
+                        if self.devices_data[x]["Device_address"] == evt.address:
+                            loc_counter = int(evt.data[7]<<8 | evt.data[8])
+                            self.devices_data[x]["RX_Count"] += 1
+                            TX_Counter[x].append(loc_counter)
+                            print("Device " + str(self.devices_data[x]["Device_address"]) + " RX_Count= " + str(self.devices_data[x]["RX_Count"]) + " Latest_BLE_TX_Count= " + str(loc_counter)+ "\n")
+                            #print(TX_Counter)
+                            #print("\n")
+                    
+
+                    
+                    
 
     def timer_handler(self):
-        # print(self.timerCounter)
-        """ Timer Handler """
-        if self.timerCounter >= SCANNING_PERIOD and self.conn_state == "scanning":
-            self.timerCounter = 0
-            # Stops Scanning
-            self.lib.bt.scanner.stop()
-            print("Scanning Stopped")
+        print("*************************************************Timer Stamp *************************************************")
+        # self.lib.bt.scanner.stop()
+        # # print(self.timerCounter)
+        # """ Timer Handler """
+        # if self.timerCounter >= SCANNING_PERIOD and self.conn_state == "scanning":
+        #     self.timerCounter = 0
+        #     # Stops Scanning
+        #     self.lib.bt.scanner.stop()
+        #     print("Scanning Stopped")
 
            
 
